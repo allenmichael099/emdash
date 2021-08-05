@@ -92,24 +92,40 @@ app_server <- function(input, output, session) {
 
   # Convert the config's label map to a named vector.
   # The names are the original labels, and the vector values are the new labels.
-  named_label_vector <- unlist(getOption("emdash.col_labels_for_participts"))
-  originalColumnNames <- names(named_label_vector)
-  new_column_names <- unname(named_label_vector)
-
+  named_label_vector <- unlist(getOption("emdash.col_labels_for_participants"))
+  original_col_labels_for_participants <- names(named_label_vector)
+  new_col_labels_for_participants <- unname(named_label_vector)
+  
   observeEvent(input$tabs, {
     if (input$tabs == "participants") {
       data_esquisse$data <-
         data_r$participants %>%
         drop_list_columns() %>%
-        data.table::setnames(originalColumnNames, new_column_names, skip_absent = TRUE)
+        data.table::setnames(original_col_labels_for_participants, new_col_labels_for_participants, skip_absent = TRUE)
     }
-
+    
     # Make sure trips exists before attempting to manipulate it
-    if (exists("data_geogr$trips") && input$tabs == "trips") {
+    if (!is.null(data_geogr$trips) && input$tabs == "trips") {
       data_esquisse$data <-
         data_geogr$trips %>%
         drop_list_columns() %>%
         sf::st_drop_geometry()
+    }
+    
+    if (input$tabs %in% names(data_r)) {
+      data_esquisse$data <-
+        data_r[[input$tabs]] %>%
+        dplyr::select(-dplyr::any_of('_id')) %>%
+        drop_list_columns()
+      
+      if (input$tabs == "participants") {
+        data.table::setnames(
+          data_r[[input$tabs]],
+          original_col_labels_for_participants,
+          new_col_labels_for_participants,
+          skip_absent = TRUE
+        )
+      }
     }
   })
 
@@ -136,7 +152,7 @@ app_server <- function(input, output, session) {
     callModule(mod_DT_server, "DT_ui_participants",
       data = data_r$participants %>%
         dplyr::select(-dplyr::any_of(getOption("emdash.cols_to_remove_from_participts_table"))) %>%
-        data.table::setnames(originalColumnNames, new_column_names, skip_absent = TRUE)
+        data.table::setnames(original_col_labels_for_participants, new_col_labels_for_participants, skip_absent = TRUE)
     )
     tableList <- getOption("emdash.supplementary_tables")
 
@@ -179,9 +195,9 @@ app_server <- function(input, output, session) {
 
         # If we are rendering fmt_time, adjust the target indices because DTedit
         # does not display a row number column
-        # Target column indices start from 0
+        # Target column indices start from 0. Also adjust target because we are hiding objectId
         if ("columnDefs" %in% names(datatable_options)) {
-          datatable_options$columnDefs[[1]]$targets <- datatable_options$columnDefs[[1]]$targets - 1
+          datatable_options$columnDefs[[1]]$targets <- datatable_options$columnDefs[[1]]$targets - 2
         }
 
         # Store the correct datatable options to use.
@@ -241,6 +257,7 @@ app_server <- function(input, output, session) {
           )
         }
 
+        column_names <- names(suppl_table)
         DTedit::dtedit(input, output,
           name = paste0("DTedit_ui_", table_type),
           thedata = suppl_table,
@@ -248,7 +265,7 @@ app_server <- function(input, output, session) {
           # edit.label.cols = c('status'),
           # input.types = c(status = "selectInput"),
           # input.choices = list(status = c('TRUE','FALSE')),
-          view.cols = names(suppl_table),
+          view.cols = column_names[!column_names %in% '_id'], # view the table without the '_id' column
           callback.update = update_callback, # db operations defined in utils_update_insert_delete.R
           callback.insert = insert_callback,
           callback.delete = delete_callback,
